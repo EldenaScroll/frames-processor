@@ -3,3 +3,4 @@ uvicorn[standard]
 requests
 opencv-python-headless
 numpy
+roboflow

@@ -1,8 +1,13 @@
 import os
 import requests
-import datetime
+import cv2
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
+
+from align import align_to_master
+from config import load_lot
+from detect import detect_cars
+from occupancy import check_occupancy
 
 app = FastAPI()
 
@@ -11,13 +16,13 @@ CF_BASE_URL = "https://parking.2759359719sw.workers.dev"
 CF_ADMIN_TOKEN = "123456"
 
 # Optional env vars
-SPACE_ID = "Space_1"
 DEFAULT_CATEGORY = "student"
 PROCESSOR_SECRET = os.environ.get("PROCESSOR_SECRET")  # optional shared secret
 
 class ProcessReq(BaseModel):
-    key: str | None = None      # upload key (not used yet)
-    lot_id: str = "1"           # default lot
+    key: str | None = None # R2 key
+    lot_id: str = "1" # default lot
+
 
 def cf_query(sql: str, params: list):
     """Call Worker /query endpoint that talks to D1."""
@@ -29,6 +34,18 @@ def cf_query(sql: str, params: list):
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def load_image_by_key(key: str):
+    """Download a drone image from R2 via the Worker's get-frame endpoint."""
+    if not key:
+        return None
+    import numpy as np
+    resp = requests.get(f"{CF_BASE_URL}/api/get-frame/{key}", timeout=30)
+    if resp.status_code != 200:
+        return None
+    img_array = np.frombuffer(resp.content, np.uint8)
+    return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
 
 @app.get("/health")
@@ -46,23 +63,39 @@ def process(req: ProcessReq, request: Request):
 
     lot_id = str(req.lot_id)
 
-    # ensure Space_1 row exists
-    exists = cf_query(
-        "SELECT 1 FROM space WHERE lot_id = ? AND id = ? LIMIT 1;",
-        [lot_id, SPACE_ID]
-    )
-    has_row = bool(exists.get("results"))
+    # Load lot config
+    master_img, parking_data, err = load_lot(lot_id)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
 
-    if not has_row:
-        cf_query(
-            "INSERT INTO space (id, lot_id, category, status) VALUES (?, ?, ?, ?);",
-            [SPACE_ID, lot_id, DEFAULT_CATEGORY, 0]
-        )
+    # Load drone image
+    image = load_image_by_key(req.key)
+    if image is None:
+        raise HTTPException(status_code=400, detail=f"Could not load image: {req.key}")
 
-    # update status to 1
-    out = cf_query(
-        "UPDATE space SET status = 1, last_updated = ? WHERE lot_id = ? AND id = ?;",
-        [str(datetime.datetime.now()),lot_id, SPACE_ID]
-    )
+    # Align to master
+    align_result = align_to_master(master_img, image)
+    aligned = align_result["aligned"]
 
-    return {"success": True, "space_id": SPACE_ID, "lot_id": lot_id, "update_result": out}
+    if align_result["homography"] is None:
+        raise HTTPException(status_code=422, detail="Image alignment failed — not enough feature matches")
+
+    # Detect cars
+    boxes = detect_cars(aligned)
+
+    # Check occupancy
+    result = check_occupancy(boxes, parking_data)
+
+    return {
+        "lot_id": lot_id,
+        "occupied": result["occupied"],
+        "free": result["free"],
+        "total_spots": len(parking_data),
+        "total_detected": len(boxes),
+        "alignment": {
+            "keypoints_master": align_result["keypoints_master"],
+            "keypoints_live": align_result["keypoints_live"],
+            "good_matches": align_result["good_matches"],
+            "inliers": align_result["inliers"],
+        },
+    }

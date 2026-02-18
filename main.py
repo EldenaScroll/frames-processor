@@ -1,9 +1,9 @@
 import os
+from datetime import datetime, timezone
 import requests
 import cv2
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
-
 from align import align_to_master
 from config import load_lot
 from detect import detect_cars
@@ -34,6 +34,23 @@ def cf_query(sql: str, params: list):
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def update_db(lot_id: str, occupied: list, free: list):
+    """Update space status, confidence_score, and last_updated in D1."""
+    now = datetime.now(timezone.utc).isoformat()
+
+    for spot in occupied:
+        cf_query(
+            "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
+            [1, spot["confidence"], now, lot_id, spot["id"]],
+        )
+
+    for spot in free:
+        cf_query(
+            "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
+            [0, spot["confidence"], now, lot_id, spot["id"]],
+        )
 
 
 def load_image_by_key(key: str):
@@ -86,16 +103,13 @@ def process(req: ProcessReq, request: Request):
     # Check occupancy
     result = check_occupancy(boxes, parking_data)
 
+    # Update D1 database
+    update_db(lot_id, result["occupied"], result["free"])
+
     return {
+        "success": True,
         "lot_id": lot_id,
-        "occupied": result["occupied"],
-        "free": result["free"],
-        "total_spots": len(parking_data),
-        "total_detected": len(boxes),
-        "alignment": {
-            "keypoints_master": align_result["keypoints_master"],
-            "keypoints_live": align_result["keypoints_live"],
-            "good_matches": align_result["good_matches"],
-            "inliers": align_result["inliers"],
-        },
+        "spots_updated": len(parking_data),
+        "occupied": len(result["occupied"]),
+        "free": len(result["free"]),
     }

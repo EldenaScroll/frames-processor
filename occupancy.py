@@ -6,29 +6,32 @@ def check_occupancy(boxes, parking_data):
     """Determine which parking spots are occupied by detected vehicles.
 
     Args:
-        boxes: list of (x1, y1, x2, y2) bounding box tuples
+        boxes: list of (x1, y1, x2, y2, confidence) tuples
         parking_data: list of (polygon_ndarray, spot_id) tuples
 
     Returns dict with:
-        occupied: list of spot IDs that have a vehicle
-        free: list of spot IDs with no vehicle
+        occupied: list of {"id": spot_id, "confidence": float}
+        free: list of {"id": spot_id, "confidence": 0.0}
     """
     occupied = []
     free = []
 
     for polygon, spot_id in parking_data:
+        best_conf = 0.0
         is_occupied = False
-        for (x1, y1, x2, y2) in boxes:
+        for box in boxes:
+            x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
+            conf = box[4] if len(box) > 4 else 0.0
             cx = int((x1 + x2) / 2)
             cy = int((y1 + y2) / 2)
             if cv2.pointPolygonTest(polygon, (cx, cy), False) >= 0:
                 is_occupied = True
-                break
+                best_conf = max(best_conf, conf)
 
         if is_occupied:
-            occupied.append(spot_id)
+            occupied.append({"id": spot_id, "confidence": best_conf})
         else:
-            free.append(spot_id)
+            free.append({"id": spot_id, "confidence": 0.0})
 
     return {"occupied": occupied, "free": free}
 
@@ -42,11 +45,13 @@ if __name__ == "__main__":
     ]
 
     # Box center (150, 150) is inside A1, nothing inside A2
-    boxes = [(120, 120, 180, 180)]
+    boxes = [(120, 120, 180, 180, 0.95)]
 
     result = check_occupancy(boxes, parking_data)
     print(f"Occupied: {result['occupied']}")
     print(f"Free:     {result['free']}")
 
-    assert result["occupied"] == ["A1"], f"Expected ['A1'], got {result['occupied']}"
-    assert result["free"] == ["A2"], f"Expected ['A2'], got {result['free']}"
+    assert result["occupied"] == [{"id": "A1", "confidence": 0.95}], f"Unexpected occupied: {result['occupied']}"
+    assert result["free"] == [{"id": "A2", "confidence": 0.0}], f"Unexpected free: {result['free']}"
+    print("All tests passed!")
+

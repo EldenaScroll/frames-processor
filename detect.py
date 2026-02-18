@@ -5,7 +5,7 @@ import cv2
 from roboflow import Roboflow
 
 # Roboflow config — reads API key from env var
-ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "")
+ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "crcxvzrMUhqJYcyMcpW8")
 WORKSPACE = "drone-parking-management-system"
 PROJECT = "drone-parking-detection"
 MODEL_VERSION = 3
@@ -49,9 +49,10 @@ def detect_cars(image, confidence=40, overlap=30):
     boxes = []
     for d in pred["predictions"]:
         x, y, w, h = d["x"], d["y"], d["width"], d["height"]
+        conf = d.get("confidence", 0.0)
         x1, y1 = int(x - w / 2), int(y - h / 2)
         x2, y2 = int(x + w / 2), int(y + h / 2)
-        boxes.append((x1, y1, x2, y2))
+        boxes.append((x1, y1, x2, y2, conf))
 
     return boxes
 

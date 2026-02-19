@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import cv2
+import numpy as np
 from roboflow import Roboflow
 
 # Roboflow config — reads API key from env var
@@ -24,6 +25,22 @@ def _get_model():
     return _model
 
 
+def preprocess(image):
+    """Enhance image for better detection in shaded areas.
+
+    Applies Contrast Limited Adaptive Histogram Equalization
+    to the lightness channel in LAB color space. This boosts local
+    contrast so dark vehicles under shade become more visible without
+    blowing out bright regions.
+    """
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    enhanced = cv2.merge([l, a, b])
+    return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+
+
 def detect_cars(image, confidence=40, overlap=30):
     """Run Roboflow detection on a cv2 image.
 
@@ -32,9 +49,10 @@ def detect_cars(image, confidence=40, overlap=30):
         confidence: detection confidence threshold (0-100)
         overlap: overlap threshold (0-100)
 
-    Returns list of (x1, y1, x2, y2) bounding box tuples.
+    Returns list of (x1, y1, x2, y2, confidence) tuples.
     """
     model = _get_model()
+    image = preprocess(image)
 
     # Roboflow SDK needs a file path, so write to a temp file
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:

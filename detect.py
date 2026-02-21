@@ -52,7 +52,6 @@ def detect_cars(image, confidence=40, overlap=30):
     Returns list of (x1, y1, x2, y2, confidence) tuples.
     """
     model = _get_model()
-    image = preprocess(image)
 
     # Roboflow SDK needs a file path, so write to a temp file
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:

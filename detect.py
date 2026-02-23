@@ -9,7 +9,7 @@ from roboflow import Roboflow
 ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "crcxvzrMUhqJYcyMcpW8")
 WORKSPACE = "drone-parking-management-system"
 PROJECT = "drone-parking-detection"
-MODEL_VERSION = 4
+MODEL_VERSION = 3
 
 _model = None
 
@@ -26,19 +26,27 @@ def _get_model():
 
 
 def preprocess(image):
-    """Enhance image for better detection in shaded areas.
+    """Enhance image for better detection, especially for dark vehicles.
 
-    Applies Contrast Limited Adaptive Histogram Equalization
-    to the lightness channel in LAB color space. This boosts local
-    contrast so dark vehicles under shade become more visible without
-    blowing out bright regions.
+    Uses LAB CLAHE for local contrast, Gamma correction for shadow recovery,
+    and a subtle sharpening to define vehicle edges.
     """
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     l = clahe.apply(l)
-    enhanced = cv2.merge([l, a, b])
-    return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+    img = cv2.merge([l, a, b])
+    img = cv2.cvtColor(img, cv2.COLOR_LAB2BGR)
+
+    gamma = 1.2
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    img = cv2.LUT(img, table)
+
+    kernel = np.array([[-1/9, -1/9, -1/9], [-1/9, 17/9, -1/9], [-1/9, -1/9, -1/9]])
+    img = cv2.filter2D(img, -1, kernel)
+
+    return img
 
 
 def detect_cars(image, confidence=40, overlap=30):
@@ -52,7 +60,7 @@ def detect_cars(image, confidence=40, overlap=30):
     Returns list of (x1, y1, x2, y2, confidence) tuples.
     """
     model = _get_model()
-
+    image = preprocess(image)
     # Roboflow SDK needs a file path, so write to a temp file
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         tmp_path = f.name

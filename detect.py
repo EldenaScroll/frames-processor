@@ -9,7 +9,7 @@ from roboflow import Roboflow
 ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "crcxvzrMUhqJYcyMcpW8")
 WORKSPACE = "drone-parking-management-system"
 PROJECT = "drone-parking-detection"
-MODEL_VERSION = 4
+MODEL_VERSION = 3
 
 _model = None
 

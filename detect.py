@@ -1,6 +1,5 @@
 import os
 import sys
-import tempfile
 import cv2
 import numpy as np
 from roboflow import Roboflow
@@ -9,7 +8,7 @@ from roboflow import Roboflow
 ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "crcxvzrMUhqJYcyMcpW8")
 WORKSPACE = "drone-parking-management-system"
 PROJECT = "drone-parking-detection"
-MODEL_VERSION = 3
+MODEL_VERSION = 4
 
 _model = None
 
@@ -49,27 +48,24 @@ def preprocess(image):
     return img
 
 
-def detect_cars(image, confidence=40, overlap=30):
+def detect_cars(image, confidence=30, overlap=30, use_preprocess=True):
     """Run Roboflow detection on a cv2 image.
 
     Args:
         image: BGR numpy array (cv2 image)
         confidence: detection confidence threshold (0-100)
         overlap: overlap threshold (0-100)
+        use_preprocess: whether to apply image enhancement
 
     Returns list of (x1, y1, x2, y2, confidence) tuples.
     """
-    model = _get_model()
-    image = preprocess(image)
-    # Roboflow SDK needs a file path, so write to a temp file
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        tmp_path = f.name
-        cv2.imwrite(tmp_path, image)
+    if use_preprocess:
+        image = preprocess(image)
 
-    try:
-        pred = model.predict(tmp_path, confidence=confidence, overlap=overlap).json()
-    finally:
-        os.unlink(tmp_path)
+    model = _get_model()
+
+    # Roboflow SDK can take a numpy array directly, avoiding disk I/O
+    pred = model.predict(image, confidence=confidence, overlap=overlap).json()
 
     boxes = []
     for d in pred["predictions"]:
@@ -96,5 +92,5 @@ if __name__ == "__main__":
     print(f"Image: {image.shape[1]}x{image.shape[0]}")
     boxes = detect_cars(image)
     print(f"Detected {len(boxes)} vehicles:")
-    for i, (x1, y1, x2, y2) in enumerate(boxes):
-        print(f"  [{i}] ({x1}, {y1}) -> ({x2}, {y2})")
+    for i, (x1, y1, x2, y2, conf) in enumerate(boxes):
+        print(f"  [{i}] ({x1}, {y1}) -> ({x2}, {y2}) conf: {conf:.2f}")

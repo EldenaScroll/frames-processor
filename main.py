@@ -24,11 +24,11 @@ class ProcessReq(BaseModel):
     lot_id: str = "1" # default lot
 
 
-def cf_query(sql: str, params: list):
-    """Call Worker /query endpoint that talks to D1."""
+def cf_batch_query(queries: list):
+    """Send multiple queries to Worker /batch-query endpoint."""
     resp = requests.post(
-        f"{CF_BASE_URL}/query",
-        json={"query": sql, "params": params},
+        f"{CF_BASE_URL}/batch-query",
+        json={"queries": queries},
         headers={"Authorization": f"Bearer {CF_ADMIN_TOKEN}"},
         timeout=30,
     )
@@ -39,18 +39,22 @@ def cf_query(sql: str, params: list):
 def update_db(lot_id: str, occupied: list, free: list):
     """Update space status, confidence_score, and last_updated in D1."""
     now = datetime.now(timezone.utc).isoformat()
+    queries = []
 
     for spot in occupied:
-        cf_query(
-            "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
-            [1, spot["confidence"], now, lot_id, spot["id"]],
-        )
+        queries.append({
+            "query": "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
+            "params": [1, spot["confidence"], now, lot_id, spot["id"]],
+        })
 
     for spot in free:
-        cf_query(
-            "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
-            [0, spot["confidence"], now, lot_id, spot["id"]],
-        )
+        queries.append({
+            "query": "UPDATE space SET status = ?, confidence_score = ?, last_updated = ? WHERE lot_id = ? AND id = ?",
+            "params": [0, spot["confidence"], now, lot_id, spot["id"]],
+        })
+
+    if queries:
+        cf_batch_query(queries)
 
 
 def load_image_by_key(key: str):
